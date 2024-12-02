@@ -11,13 +11,10 @@
     <script type="module" src="https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js"></script>
     <script type="module" src="https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js"></script>
     <script type="module" src="https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js"></script>
-
-
-
 </head>
 
 <body class="container mt-5">
-    <h1 class="text-center mb-4">會員專區</h1>
+    <h1 class="text-center mb-4">註冊與登入</h1>
 
     <!-- Nav Tabs -->
     <ul class="nav nav-tabs" id="authTabs" role="tablist">
@@ -81,14 +78,14 @@
                     <th scope="col">最後登入時間</th>
                 </tr>
             </thead>
-            <tbody id="notesList"></tbody>
+            <tbody id="usersTableBody"></tbody>
         </table>
     </div>
 
     <!-- 筆記功能區域 -->
     <div id="notesSection" style="display: none;">
         <!-- 新增筆記按鈕 -->
-        <button id="addNoteBtn" type="button" class="btn btn-primary mt-3" data-bs-toggle="modal"
+        <button type="button" class="btn btn-primary mt-3" data-bs-toggle="modal"
             data-bs-target="#noteModal">新增筆記</button>
 
         <!-- 筆記模態框 -->
@@ -118,15 +115,16 @@
                 </div>
             </div>
         </div>
+
         <div class="mt-4">
             <h2>筆記列表</h2>
-            <table class="table table-striped w-80">
+            <table class="table table-striped">
                 <thead>
                     <tr>
+                        <th scope="col">#</th>
                         <th scope="col">標題</th>
                         <th scope="col">內容</th>
                         <th scope="col">操作</th>
-                        <th scope="col">最後修改時間</th>
                     </tr>
                 </thead>
                 <tbody id="notesList">
@@ -134,7 +132,10 @@
                 </tbody>
             </table>
         </div>
+
     </div>
+
+
 
 
     <!-- Firebase Script -->
@@ -142,7 +143,6 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
         import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
         import { getDatabase, ref, set, update, get, child, push, remove } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
-
 
         // Firebase 配置
         const firebaseConfig = {
@@ -171,186 +171,222 @@
         const noteContentInput = document.getElementById("note-content");
         const notesList = document.getElementById("notesList");
         const saveNoteBtn = document.getElementById("saveNoteBtn");
-        saveNoteBtn.addEventListener("click", () => {
-            console.log("儲存筆記按鈕被點擊");
-            // 實現儲存筆記的邏輯
-        });
 
         // 獲取當前用戶的 UID
         const user = auth.currentUser;
         const uid = user ? user.uid : null; // 用戶的 UID
 
+
         // 初始化 Firebase 資料庫引用
         const notesRef = ref(database, "notes"); // Firebase 中的筆記路徑
 
-        //登入事件或初始化事件
-        auth.onAuthStateChanged((user) => {
-            if (user) {
-                console.log("已登入，用戶：" + user.email);
-                loadNotes(); // 登入後載入筆記
+        // 儲存筆記按鈕點擊事件
+        // 儲存筆記按鈕點擊事件
+        saveNoteBtn.addEventListener("click", () => {
+            const title = noteTitleInput.value.trim();
+            const content = noteContentInput.value.trim();
+            const user = auth.currentUser; // 確保獲取當前用戶
+            const uid = user ? user.uid : null;
+
+            if (!uid) {
+                alert("用戶未登入，請先登入後再新增筆記！");
+                return;
+            }
+
+            if (title && content) {
+                // 使用用戶的 UID 儲存筆記，儲存路徑與圖片一致
+                const userNotesRef = ref(database, `users/${uid}/notes`);
+                const newNoteRef = push(userNotesRef);
+                const noteData = {
+                    title: title,
+                    content: content,
+                    createdAt: new Date().toISOString(),
+                };
+
+                set(newNoteRef, noteData)
+                    .then(() => {
+                        console.log("筆記已成功儲存至 Firebase:", noteData);
+                        addNoteToTable(newNoteRef.key, noteData);
+                        noteForm.reset();
+                        const noteModal = bootstrap.Modal.getInstance(document.getElementById("noteModal"));
+                        noteModal.hide();
+                    })
+                    .catch((error) => {
+                        console.error("筆記儲存至 Firebase 失敗:", error);
+                        alert("儲存筆記失敗，請稍後再試！");
+                    });
             } else {
-                console.log("未登入");
+                alert("請輸入標題和內容！");
             }
         });
 
-        // 綁定新增筆記按鈕
-        document.getElementById("addNoteButton").addEventListener("click", addNewNote);
 
 
-        // 加載用戶筆記
-        // 獲取當前登入用戶的筆記
-        // 從 Firebase 加載筆記
-        function loadNotes() {
-            const user = auth.currentUser;
-            if (!user) {
-                console.error("尚未登入，無法加載筆記。");
-                return;
-            }
 
-            const notesRef = ref(database, `users/${user.email.replace(/\./g, '_')}/notes`);
+        // 新增筆記到表格
+        function addNoteToTable(noteId, noteData) {
+            noteCounter++; // 每新增一筆，計數器加一
 
-            get(notesRef)
-                .then((snapshot) => {
-                    const notesList = document.getElementById("notesList");
-                    notesList.innerHTML = ""; // 清空舊列表
+            const notesTableBody = document.getElementById("notesTableBody");
 
-                    if (snapshot.exists()) {
-                        const notes = snapshot.val();
-
-                        // 遍歷筆記並顯示到畫面中
-                        Object.keys(notes).forEach((noteId) => {
-                            const noteContent = notes[noteId];
-                            addNoteToTable(noteId, noteContent); // 使用你已定義的函式
-                        });
-                    } else {
-                        console.log("目前無筆記可顯示。");
-                        notesList.innerHTML = "<tr><td colspan='3' class='text-center'>尚無筆記</td></tr>";
-                    }
-                })
-                .catch((error) => {
-                    console.error("筆記加載失敗:", error);
-                });
-        }
-
-
-        // 將筆記加入到畫面（延續你的邏輯）
-        function addNoteToTable(noteId, noteContent) {
-            const notesList = document.getElementById("notesList");
             const row = document.createElement("tr");
-
             row.innerHTML = `
-        <td>${noteContent}</td>
+        <th scope="row">${noteCounter}</th>
+        <td>${noteData.title}</td>
+        <td>${noteData.content}</td>
+        <td>${new Date(noteData.createdAt).toLocaleString()}</td>
         <td>
             <button class="btn btn-danger btn-sm" onclick="deleteNote('${noteId}')">刪除</button>
         </td>
     `;
 
-            notesList.appendChild(row);
+            notesTableBody.appendChild(row);
         }
 
-
-        // 新增筆記
-        function addNewNote() {
-            const user = auth.currentUser;
-            if (!user) {
-                alert("請先登入！");
-                return;
-            }
-
-            const noteInput = document.getElementById("noteInput"); // 假設這是你的筆記輸入欄位
-            const noteContent = noteInput.value.trim();
-            if (noteContent === "") {
-                alert("筆記內容不得為空！");
-                return;
-            }
-
-            const notesRef = ref(database, `users/${user.email.replace(/\./g, '_')}/notes`);
-            const newNoteRef = push(notesRef);
-
-            set(newNoteRef, noteContent)
-                .then(() => {
-                    addNoteToTable(newNoteRef.key, noteContent); // 使用既有函式
-                    noteInput.value = ""; // 清空輸入框
-                    alert("筆記新增成功！");
-                })
-                .catch((error) => {
-                    console.error("新增筆記失敗:", error);
-                });
-        }
-
-
-        //將筆記新增到表格
-        // 全域定義 addNoteToTable，確保只定義一次
-        function addNoteToTable(noteId, noteContent) {
-            const notesList = document.getElementById("notesList");
-            const row = document.createElement("tr");
-            row.setAttribute("data-id", noteId); // 加入唯一 ID 標記
-
-            row.innerHTML = `
-        <td>${noteContent}</td>
-        <td>
-            <button class="btn btn-danger btn-sm" onclick="deleteNote('${noteId}')">刪除</button>
-        </td>
-    `;
-
-            notesList.appendChild(row);
-        }
-
-
-        //讀取當前用戶的所有筆記並顯示在畫面上
-        function fetchNotesFromDatabase(user) {
-            if (!user) {
-                alert("請先登入！");
-                return;
-            }
-
-            // 取得當前用戶的筆記路徑
-            const notesRef = ref(database, `users/${user.email.replace(/\./g, '_')}/notes`);
-            const notesList = document.getElementById("notesList");
-
-            get(notesRef)
-                .then((snapshot) => {
-                    if (snapshot.exists()) {
-                        const notes = snapshot.val();
-                        notesList.innerHTML = ""; // 清空表格內容
-
-                        // 遍歷每條筆記，添加到表格中
-                        Object.keys(notes).forEach((noteId, index) => {
-                            const noteData = notes[noteId];
-                            addNoteToTable(index + 1, noteData); // 添加筆記
-                        });
-                    } else {
-                        // 無筆記時顯示預設提示
-                        notesList.innerHTML = "<tr><td colspan='3' class='text-center'>尚無筆記</td></tr>";
-                    }
-                })
-                .catch((error) => {
-                    console.error("筆記加載失敗:", error);
-                });
-        }
-
-        // 刪除筆記
         function deleteNote(noteId) {
             const user = auth.currentUser;
-            if (!user) {
-                alert("請先登入！");
+            const uid = user ? user.uid : null;
+
+            if (!uid) {
+                alert("用戶未登入，無法刪除筆記！");
                 return;
             }
 
-            const noteRef = ref(database, `users/${user.email.replace(/\./g, '_')}/notes/${noteId}`);
+            const noteRef = ref(database, `users/${uid}/notes/${noteId}`);
             remove(noteRef)
                 .then(() => {
-                    const noteRow = document.querySelector(`tr[data-id="${noteId}"]`);
-                    if (noteRow) noteRow.remove(); // 從畫面移除該筆記
-                    alert("筆記刪除成功！");
+                    console.log("筆記已刪除：", noteId);
+                    // 刪除該行並更新筆記編號
+                    const notesTableBody = document.getElementById("notesTableBody");
+                    notesTableBody.innerHTML = ""; // 清空表格
+                    loadNotes(); // 重新載入筆記，更新編號
                 })
                 .catch((error) => {
-                    console.error("刪除筆記失敗:", error);
+                    console.error("刪除筆記失敗：", error);
+                    alert("刪除筆記失敗，請稍後再試！");
                 });
+        }
+
+        function loadNotes() {
+            const user = auth.currentUser;
+            const uid = user ? user.uid : null;
+
+            if (!uid) {
+                alert("用戶未登入，無法載入筆記！");
+                return;
+            }
+
+            const userNotesRef = ref(database, `users/${uid}/notes`);
+            onValue(userNotesRef, (snapshot) => {
+                const notesTableBody = document.getElementById("notesTableBody");
+                notesTableBody.innerHTML = ""; // 清空表格
+                noteCounter = 0; // 重新計數
+
+                snapshot.forEach((childSnapshot) => {
+                    const noteId = childSnapshot.key;
+                    const noteData = childSnapshot.val();
+                    addNoteToTable(noteId, noteData);
+                });
+            });
         }
 
 
 
+        // 綁定編輯與刪除功能
+        function bindNoteActions(noteRow) {
+            const editButton = noteRow.querySelector(".edit-note");
+            const deleteButton = noteRow.querySelector(".delete-note");
+
+            // 編輯筆記
+            editButton.addEventListener("click", () => {
+                const noteId = noteRow.dataset.id;
+                const titleCell = noteRow.cells[1];
+                const contentCell = noteRow.cells[2];
+
+                // 填充模態框的欄位以便編輯
+                noteTitleInput.value = titleCell.textContent;
+                noteContentInput.value = contentCell.textContent;
+
+                // 顯示模態框
+                const noteModal = new bootstrap.Modal(document.getElementById("noteModal"));
+                noteModal.show();
+
+                // 修改保存邏輯
+                saveNoteBtn.onclick = () => {
+                    const updatedTitle = noteTitleInput.value.trim();
+                    const updatedContent = noteContentInput.value.trim();
+
+                    if (updatedTitle && updatedContent && uid) {
+                        // 更新 Firebase 中的筆記
+                        const noteRef = ref(database, `users/${uid}/notes/${noteId}`);
+                        update(noteRef, {
+                            title: updatedTitle,
+                            content: updatedContent,
+                        })
+                            .then(() => {
+                                console.log("筆記已成功更新:", noteId);
+
+                                // 更新表格中的資料
+                                titleCell.textContent = updatedTitle;
+                                contentCell.textContent = updatedContent;
+
+                                // 關閉模態框
+                                noteModal.hide();
+                            })
+                            .catch((error) => {
+                                console.error("更新筆記失敗:", error);
+                                alert("更新筆記失敗，請稍後再試！");
+                            });
+                    } else {
+                        alert("請輸入標題和內容！");
+                    }
+                };
+            });
+
+            // 刪除筆記
+            deleteButton.addEventListener("click", () => {
+                const noteId = noteRow.dataset.id;
+
+                // 刪除 Firebase 中的筆記
+                const noteRef = ref(database, `users/${uid}/notes/${noteId}`);
+                remove(noteRef)
+                    .then(() => {
+                        console.log("筆記已刪除:", noteId);
+
+                        // 從表格中移除筆記
+                        noteRow.remove();
+                    })
+                    .catch((error) => {
+                        console.error("刪除筆記失敗:", error);
+                        alert("刪除筆記失敗，請稍後再試！");
+                    });
+            });
+        }
+
+        // 加載用戶筆記
+        function loadUserNotes() {
+            const user = auth.currentUser;
+            if (user) {
+                const notesRef = ref(database, `users/${user.uid}/notes`);
+
+                get(notesRef)
+                    .then((snapshot) => {
+                        if (snapshot.exists()) {
+                            const notes = snapshot.val();
+                            notesList.innerHTML = ""; // 清空筆記列表
+                            Object.keys(notes).forEach((key) => {
+                                const note = notes[key];
+                                addNoteToTable(key, note);
+                            }); addNoteToTable
+                        } else {
+                            console.log("用戶無筆記");
+                        }
+                    })
+                    .catch((error) => {
+                        console.error("載入筆記失敗:", error);
+                    });
+            }
+        }
 
         // 註冊與登入邏輯整合
         function handleAuth(buttonType) {
@@ -415,64 +451,15 @@
         // 綁定登入/登出按鈕事件
         loginBtn.addEventListener("click", () => {
             if (loginBtn.innerText === "使用 Google 登入") {
-                // 登入邏輯
-                signInWithPopup(auth, provider)
-                    .then((result) => {
-                        const user = result.user;
-
-                        // 顯示用戶資訊
-                        displayUserInfo(user);
-
-                        // 加載用戶的筆記（如果需要筆記功能）
-                        if (typeof loadUserNotes === "function") {
-                            loadUserNotes();
-                        }
-
-                        // 顯示用戶資訊按鈕並綁定事件
-                        const userInfoBtn = document.getElementById("userInfoBtn");
-                        if (userInfoBtn) {
-                            userInfoBtn.style.display = "inline-block";
-
-                            // 確保每次登入後重新綁定顯示用戶資訊的事件
-                            userInfoBtn.addEventListener("click", () => {
-                                displayUserInfo(user);
-                            });
-                        }
-
-                        // 顯示其他功能區（如筆記）
-                        const notesSection = document.getElementById("notesSection");
-                        if (notesSection) notesSection.style.display = "block";
-
-                        // 更新按鈕文字
-                        loginBtn.innerText = "登出";
-                        alert("登入成功！");
-                    })
-                    .catch((error) => {
-                        console.error("登入失敗:", error.message);
-                        alert("登入失敗：" + error.message);
-                    });
+                handleAuth("login");
             } else {
                 // 登出邏輯
                 signOut(auth)
                     .then(() => {
-                        // 確保清除用戶資訊的 DOM 元素存在
-                        if (typeof clearUserInfo === "function") {
-                            clearUserInfo();
-                        }
+                        // 隱藏用戶資訊按鈕和筆記功能
+                        document.getElementById("userInfoBtn").style.display = "none";
+                        document.getElementById("notesSection").style.display = "none";
 
-                        // 隱藏功能區域
-                        const userInfoBtn = document.getElementById("userInfoBtn");
-                        const notesSection = document.getElementById("notesSection");
-
-                        if (userInfoBtn) userInfoBtn.style.display = "none";
-                        if (notesSection) notesSection.style.display = "none";
-
-                        // 清空筆記列表（如有）
-                        if (typeof notesList !== "undefined") {
-                            notesList.innerHTML = "";
-                        }
-
-                        // 更新按鈕文字
                         loginBtn.innerText = "使用 Google 登入";
                         alert("您已成功登出！");
                     })
@@ -480,33 +467,8 @@
                         console.error("登出失敗:", error.message);
                         alert("登出失敗：" + error.message);
                     });
-
             }
         });
-
-        function saveNoteToFirebase(note) {
-            const user = auth.currentUser; // 獲取當前登入的用戶
-            if (!user) {
-                alert("請先登入！");
-                return;
-            }
-
-            const userEmailKey = user.email.replace(/\./g, "_"); // 將 email 中的 "." 替換成 "_"，避免 Firebase key 的限制
-            const userNotesRef = ref(database, `users/${userEmailKey}/notes`);
-
-            // 在 notes 節點下新增筆記
-            const newNoteRef = push(userNotesRef);
-            set(newNoteRef, {
-                title: note.title,
-                content: note.content,
-                createdAt: new Date().toISOString(),
-            }).then(() => {
-                alert("筆記儲存成功！");
-            }).catch((error) => {
-                console.error("筆記儲存失敗：", error);
-                alert("筆記儲存失敗：" + error.message);
-            });
-        }
 
         function displayUserInfo(user) {
             // 設置模態框內容
@@ -520,21 +482,19 @@
             userInfoModal.show();
         }
 
+
         // 清除用戶資訊的函數
         function clearUserInfo() {
-            const emailElement = document.getElementById("userEmail");
-            const nameElement = document.getElementById("userName");
-            const photoElement = document.getElementById("userPhoto");
-            const lastLoginElement = document.getElementById("lastLogin");
+            document.getElementById("userEmail").textContent = "";
+            document.getElementById("userName").textContent = "";
+            document.getElementById("userPhoto").src = "";
+            document.getElementById("lastLogin").textContent = "";
+            document.getElementById("userInfo").style.display = "none";
 
-            // 確保元素存在後再操作
-            if (emailElement) emailElement.textContent = "";
-            if (nameElement) nameElement.textContent = "";
-            if (photoElement) photoElement.src = "";
-            if (lastLoginElement) lastLoginElement.textContent = "";
-
-            const userInfoSection = document.getElementById("userInfo");
-            if (userInfoSection) userInfoSection.style.display = "none";
+            // 隱藏所有用戶資料的欄位
+            const allUsersDiv = document.getElementById("allUsers");
+            allUsersDiv.style.display = "none";
+            usersTableBody.innerHTML = ""; // 清空表格內容
         }
 
 
@@ -553,12 +513,12 @@
                         Object.keys(users).forEach((key) => {
                             const user = users[key];
                             const row = `
-                <tr>
-                    <td><img src="${user.photoURL || 'https://via.placeholder.com/50'}" alt="${user.name}" style="width: 50px; height: 50px; object-fit: cover; border-radius: 50%;"></td>
-                    <td>${user.name || '未知用戶'}</td>
-                    <td>${user.email || '未知信箱'}</td>
-                    <td>${new Date(user.lastLogin).toLocaleString()}</td>
-                </tr>`;
+                        <tr>
+                            <td><img src="${user.photoURL || 'https://via.placeholder.com/50'}" alt="${user.name}" style="width: 50px; height: 50px; object-fit: cover; border-radius: 50%;"></td>
+                            <td>${user.name || '未知用戶'}</td>
+                            <td>${key.replace(/_/g, '.')}</td>
+                            <td>${new Date(user.lastLogin).toLocaleString()}</td>
+                        </tr>`;
                             usersTableBody.insertAdjacentHTML('beforeend', row);
                         });
                     } else {
@@ -571,15 +531,10 @@
                 });
         }
 
-
-
     </script>
 
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha3/dist/js/bootstrap.bundle.min.js"></script>
-
-    <!-- SweetAlert2 -->
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 </body>
 
 </html>
